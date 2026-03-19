@@ -23,7 +23,8 @@ namespace DraculaVanHelsing.Api.Models.GameState
         public Guid UserId { get; set; }
         public string Username { get; set; } = string.Empty;
         public string ConnectionId { get; set; } = string.Empty;
-        public FactionType Faction { get; set; }
+        public FactionType? Faction { get; set; }
+        public FactionType? RequestedFaction { get; set; } // Lưu lựa chọn Role lúc bắt đầu
         public int Health { get; set; } // [cite: 50, 102]
         public List<CardInHand> Hand { get; set; } = new List<CardInHand>(); // [cite: 73][Max 5 lá]
         public bool IsConnected { get; set; } = true;

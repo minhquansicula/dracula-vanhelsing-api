@@ -18,7 +18,7 @@ namespace DraculaVanHelsing.Api.Models.Entities
 
         public int TotalWins { get; set; } = 0;
         public int TotalLosses { get; set; } = 0;
-        public int EloRating { get; set; } = 1000;
+        public int EloRating { get; set; } = 0;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         // Navigation
