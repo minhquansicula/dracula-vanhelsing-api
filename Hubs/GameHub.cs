@@ -1,5 +1,4 @@
 ﻿using DraculaVanHelsing.Api.Models.Enums;
-using DraculaVanHelsing.Api.Models.GameState;
 using DraculaVanHelsing.Api.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
@@ -9,11 +8,11 @@ namespace DraculaVanhelsing.Api.Hubs
     [Authorize]
     public class GameHub : Hub
     {
-        private readonly IGameStateService _gameStateService;
+        private readonly IGameEngineService _gameEngineService;
 
-        public GameHub(IGameStateService gameStateService)
+        public GameHub(IGameEngineService gameEngineService)
         {
-            _gameStateService = gameStateService;
+            _gameEngineService = gameEngineService;
         }
 
         public override async Task OnConnectedAsync()
@@ -33,122 +32,56 @@ namespace DraculaVanhelsing.Api.Hubs
         public async Task CreateRoom()
         {
             var userId = Guid.Parse(Context.UserIdentifier!);
-            var roomCode = GenerateRoomCode();
+            var state = await _gameEngineService.CreateRoomAsync(userId, Context.ConnectionId);
 
-            var state = new GameRoomState
-            {
-                RoomId = Guid.NewGuid(),
-                RoomCode = roomCode,
-                Status = RoomStatus.Waiting,
-                Players = new List<PlayerInGame>
-                {
-                    new PlayerInGame
-                    {
-                        UserId = userId,
-                        ConnectionId = Context.ConnectionId,
-                        Health = 0 // Máu sẽ set sau khi chốt Role
-                    }
-                }
-            };
-
-            await _gameStateService.SaveGameStateAsync(roomCode, state);
-            await Groups.AddToGroupAsync(Context.ConnectionId, roomCode);
-            await Clients.Caller.SendAsync("RoomCreated", roomCode);
+            await Groups.AddToGroupAsync(Context.ConnectionId, state.RoomCode);
+            await Clients.Caller.SendAsync("RoomCreated", state.RoomCode);
         }
 
         public async Task JoinRoom(string roomCode)
         {
             var userId = Guid.Parse(Context.UserIdentifier!);
-            var state = await _gameStateService.GetGameStateAsync(roomCode);
+            var state = await _gameEngineService.JoinRoomAsync(userId, Context.ConnectionId, roomCode);
 
-            if (state == null || state.Status != RoomStatus.Waiting || state.Players.Count >= 2)
+            if (state == null)
             {
                 await Clients.Caller.SendAsync("Error", "Phòng không tồn tại hoặc đã đầy.");
                 return;
             }
 
-            state.Players.Add(new PlayerInGame
-            {
-                UserId = userId,
-                ConnectionId = Context.ConnectionId,
-                Health = 0
-            });
-
-            await _gameStateService.SaveGameStateAsync(roomCode, state);
             await Groups.AddToGroupAsync(Context.ConnectionId, roomCode);
-
-            // Báo cho cả 2 người chơi biết phòng đã đủ 2 người và chuyển sang màn hình chọn Role
             await Clients.Group(roomCode).SendAsync("RoomReadyToSelectRole", state);
         }
 
         public async Task SelectRole(string roomCode, FactionType requestedFaction)
         {
             var userId = Guid.Parse(Context.UserIdentifier!);
-            var state = await _gameStateService.GetGameStateAsync(roomCode);
+            var state = await _gameEngineService.SelectRoleAsync(userId, roomCode, requestedFaction);
 
-            if (state == null || state.Status != RoomStatus.Waiting) return;
+            if (state == null) return;
 
-            var player = state.Players.FirstOrDefault(p => p.UserId == userId);
-            if (player == null) return;
-
-            // Lưu lựa chọn của người chơi
-            player.RequestedFaction = requestedFaction;
-
-            // Kiểm tra xem cả 2 người đã chọn xong chưa
-            if (state.Players.Count == 2 && state.Players.All(p => p.RequestedFaction.HasValue))
+            if (state.Status == RoomStatus.Playing)
             {
-                var player1 = state.Players[0];
-                var player2 = state.Players[1];
-
-                // Nếu 2 người chọn khác nhau -> Ai chọn gì được nấy
-                if (player1.RequestedFaction != player2.RequestedFaction)
-                {
-                    player1.Faction = player1.RequestedFaction;
-                    player2.Faction = player2.RequestedFaction;
-                }
-                else
-                {
-                    // Nếu 2 người chọn giống nhau -> Random 50/50
-                    var random = new Random();
-                    bool player1KeepsRole = random.Next(2) == 0;
-
-                    player1.Faction = player1KeepsRole ? player1.RequestedFaction : GetOppositeFaction(player1.RequestedFaction!.Value);
-                    player2.Faction = player1KeepsRole ? GetOppositeFaction(player2.RequestedFaction!.Value) : player2.RequestedFaction;
-                }
-
-                // Cập nhật lại Máu theo Role chính thức (Chỉ Dracula có 12 HP)
-                foreach (var p in state.Players)
-                {
-                    p.Health = p.Faction == FactionType.Dracula ? 12 : 0;
-                }
-
-                // Chuyển state sang Playing
-                state.Status = RoomStatus.Playing;
-                await _gameStateService.SaveGameStateAsync(roomCode, state);
-
-                // TODO: Chỗ này sau này sẽ gọi hàm xào bài, chia bài...
-
-                // Báo cho cả 2 người kết quả chọn Role và Bắt đầu game
+                // Gửi trạng thái game đã bắt đầu (kèm Role chính thức) cho cả 2
                 await Clients.Group(roomCode).SendAsync("GameStarted", state);
             }
             else
             {
-                // Nếu mới có 1 người chọn, lưu lại và đợi người kia
-                await _gameStateService.SaveGameStateAsync(roomCode, state);
-                await Clients.OthersInGroup(roomCode).SendAsync("OpponentSelectedRole");
+                // Thông báo cho người kia biết "Đối thủ đã chọn xong, đến lượt bạn"
+                await Clients.OthersInGroup(roomCode).SendAsync("OpponentSelectedRole", userId);
             }
         }
 
-        private FactionType GetOppositeFaction(FactionType faction)
+        public async Task Surrender(string roomCode)
         {
-            return faction == FactionType.Dracula ? FactionType.VanHelsing : FactionType.Dracula;
-        }
+            var userId = Guid.Parse(Context.UserIdentifier!);
+            var state = await _gameEngineService.SurrenderAsync(userId, roomCode);
 
-        private string GenerateRoomCode()
-        {
-            const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-            var random = new Random();
-            return new string(Enumerable.Repeat(chars, 6).Select(s => s[random.Next(s.Length)]).ToArray());
+            if (state != null)
+            {
+                // Gửi trạng thái kết thúc game cho cả 2 người chơi trong phòng
+                await Clients.Group(roomCode).SendAsync("GameEnded", state);
+            }
         }
     }
 }

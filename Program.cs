@@ -1,6 +1,7 @@
 ﻿using DraculaVanHelsing.Api.Data;
 using DraculaVanHelsing.Api.Services;
 using DraculaVanHelsing.Api.Services.Interfaces;
+using DraculaVanhelsing.Api.Hubs; 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -17,9 +18,21 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 var redisConnectionString = builder.Configuration.GetConnectionString("RedisConnection");
 builder.Services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect(redisConnectionString!));
 
-// 3. Cấu hình JWT Authentication
+// 3. Cấu hình JWT Authentication & CORS
 var jwtSettings = builder.Configuration.GetSection("Jwt");
 var key = Encoding.UTF8.GetBytes(jwtSettings["Key"]!);
+
+// 4. Allow CORS
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowReactApp", policy =>
+    {
+        policy.WithOrigins("http://localhost:5173")
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials(); // BẮT BUỘC PHẢI CÓ DÒNG NÀY CHO SIGNALR
+    });
+});
 
 builder.Services.AddAuthentication(options =>
 {
@@ -38,13 +51,31 @@ builder.Services.AddAuthentication(options =>
         ValidAudience = jwtSettings["Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(key)
     };
+
+    // BẮT BUỘC THÊM SỰ KIỆN NÀY ĐỂ SIGNALR NHẬN ĐƯỢC JWT TOKEN
+    options.Events = new JwtBearerEvents
+    {
+        OnMessageReceived = context =>
+        {
+            var accessToken = context.Request.Query["access_token"];
+            var path = context.HttpContext.Request.Path;
+
+            // Nếu request gửi đến Hub và có chứa token trong query string
+            if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/gamehub"))
+            {
+                context.Token = accessToken;
+            }
+            return Task.CompletedTask;
+        }
+    };
 });
 
-// 4. Đăng ký các Services (Dependency Injection)
+// 5. Đăng ký các Services (Dependency Injection)
 builder.Services.AddScoped<IGameStateService, GameStateService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IGameEngineService, GameEngineService>();
 
-// 5. Cấu hình SignalR và Controllers
+// 6. Cấu hình SignalR và Controllers
 builder.Services.AddSignalR();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -60,13 +91,14 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-// UseAuthentication phải đứng TRƯỚC UseAuthorization
+// Thứ tự Middleware rất quan trọng: CORS -> AuthN -> AuthZ -> Map
+app.UseCors("AllowReactApp");
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
 
-// 6. Map SignalR Hub (Sẽ mở comment khi tạo file Hub)
-// app.MapHub<GameHub>("/gameHub"); 
+// 7. Map SignalR Hub
+app.MapHub<GameHub>("/gamehub");
 
 app.Run();

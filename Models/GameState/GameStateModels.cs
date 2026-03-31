@@ -9,6 +9,8 @@ namespace DraculaVanHelsing.Api.Models.GameState
         public RoomStatus Status { get; set; }
         public Guid? CurrentTurnUserId { get; set; }
         public int RoundNumber { get; set; } = 1;
+        public Guid? WinnerId { get; set; }
+        public string EndReason { get; set; } = string.Empty;
 
         // Dữ liệu bộ bài và bàn cờ
         public List<CardColor> ColorRanking { get; set; } = new List<CardColor>(); // [cite: 21, 52]
