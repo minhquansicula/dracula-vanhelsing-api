@@ -9,5 +9,7 @@ namespace DraculaVanHelsing.Api.Services.Interfaces
         Task<GameRoomState?> JoinRoomAsync(Guid userId, string connectionId, string roomCode);
         Task<GameRoomState?> SelectRoleAsync(Guid userId, string roomCode, FactionType requestedFaction);
         Task<GameRoomState?> SurrenderAsync(Guid userId, string roomCode);
+        Task<GameRoomState?> DrawCardAsync(Guid userId, string roomCode);
+        Task<GameRoomState?> PlayCardAsync(Guid userId, string roomCode, int discardedCardId);
     }
 }

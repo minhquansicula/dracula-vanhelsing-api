@@ -139,6 +139,80 @@ namespace DraculaVanHelsing.Api.Services
             state.CurrentTurnUserId = draculaPlayer.UserId;
             state.RoundNumber = 1;
         }
+
+        public async Task<GameRoomState?> DrawCardAsync(Guid userId, string roomCode)
+        {
+            var state = await _gameStateService.GetGameStateAsync(roomCode);
+
+            if (state == null || state.Status != RoomStatus.Playing) return null;
+            if (state.CurrentTurnUserId != userId) return null; // Không phải lượt của người này
+
+            var player = state.Players.FirstOrDefault(p => p.UserId == userId);
+            if (player == null || player.DrawnCard != null) return null; // Đã rút bài rồi không được rút thêm
+
+            if (state.DrawPile.Count == 0)
+            {
+                // TODO: Xử lý hết bài -> Gọi hàm kết thúc vòng
+                return state;
+            }
+
+            // Rút lá đầu tiên từ DrawPile
+            var cardId = state.DrawPile[0];
+            state.DrawPile.RemoveAt(0);
+
+            // Đưa vào khu vực chờ (DrawnCard) của người chơi
+            player.DrawnCard = new CardInHand { CardId = cardId, IsRevealed = false };
+
+            await _gameStateService.SaveGameStateAsync(roomCode, state);
+            return state;
+        }
+
+        public async Task<GameRoomState?> PlayCardAsync(Guid userId, string roomCode, int discardedCardId)
+        {
+            var state = await _gameStateService.GetGameStateAsync(roomCode);
+
+            if (state == null || state.Status != RoomStatus.Playing) return null;
+            if (state.CurrentTurnUserId != userId) return null;
+
+            var player = state.Players.FirstOrDefault(p => p.UserId == userId);
+            if (player == null || player.DrawnCard == null) return null; // Chưa rút bài thì không được đánh
+
+            CardInHand? cardToDiscard = null;
+            bool isDiscardingDrawnCard = player.DrawnCard.CardId == discardedCardId;
+
+            if (isDiscardingDrawnCard)
+            {
+                // Vứt ngay lá vừa rút
+                cardToDiscard = player.DrawnCard;
+                player.DrawnCard = null;
+            }
+            else
+            {
+                // Vứt 1 lá trên tay, giữ lại lá vừa rút vào vị trí đó
+                var cardInHand = player.Hand.FirstOrDefault(c => c.CardId == discardedCardId);
+                if (cardInHand == null) return null; // Không tìm thấy lá bài hợp lệ
+
+                cardToDiscard = cardInHand;
+                int index = player.Hand.IndexOf(cardInHand);
+
+                // Hoán đổi
+                player.Hand[index] = player.DrawnCard;
+                player.DrawnCard = null;
+            }
+
+            // Đưa lá bị vứt vào Discard Pile
+            state.DiscardPile.Add(cardToDiscard.CardId);
+
+            // TODO: Kích hoạt Effect (Kỹ năng) của lá bài vừa đánh tại đây (Giai đoạn 2)
+
+            // Chuyển lượt cho đối thủ
+            var opponent = state.Players.First(p => p.UserId != userId);
+            state.CurrentTurnUserId = opponent.UserId;
+
+            await _gameStateService.SaveGameStateAsync(roomCode, state);
+            return state;
+        }
+
         public async Task<GameRoomState?> SurrenderAsync(Guid userId, string roomCode)
         {
             var state = await _gameStateService.GetGameStateAsync(roomCode);

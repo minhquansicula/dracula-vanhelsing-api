@@ -69,6 +69,32 @@ namespace DraculaVanhelsing.Api.Hubs
             {
                 // Thông báo cho người kia biết "Đối thủ đã chọn xong, đến lượt bạn"
                 await Clients.OthersInGroup(roomCode).SendAsync("OpponentSelectedRole", userId);
+
+                await Clients.Caller.SendAsync("GameStateUpdated", state);
+            }
+        }
+
+        public async Task DrawCard(string roomCode)
+        {
+            var userId = Guid.Parse(Context.UserIdentifier!);
+            var state = await _gameEngineService.DrawCardAsync(userId, roomCode);
+
+            if (state != null)
+            {
+                // Gửi state mới cho cả 2 người chơi để cập nhật UI
+                await Clients.Group(roomCode).SendAsync("GameStateUpdated", state);
+            }
+        }
+
+        public async Task PlayCard(string roomCode, int discardedCardId)
+        {
+            var userId = Guid.Parse(Context.UserIdentifier!);
+            var state = await _gameEngineService.PlayCardAsync(userId, roomCode, discardedCardId);
+
+            if (state != null)
+            {
+                // Gửi state mới cho cả 2 người chơi để cập nhật UI
+                await Clients.Group(roomCode).SendAsync("GameStateUpdated", state);
             }
         }
 
