@@ -18,6 +18,14 @@ namespace DraculaVanHelsing.Api.Models.GameState
         public List<int> DiscardPile { get; set; } = new List<int>(); // [cite: 70]
         public List<BoardZoneState> Zones { get; set; } = new List<BoardZoneState>();
         public List<PlayerInGame> Players { get; set; } = new List<PlayerInGame>();
+        public int? PendingSkillValue { get; set; } = null;
+    }
+
+    public class SkillPayload
+    {
+        public int? TargetCardId { get; set; }
+        public CardColor? TargetColor1 { get; set; } // Dùng cho bài số 7
+        public CardColor? TargetColor2 { get; set; }
     }
 
     public class PlayerInGame

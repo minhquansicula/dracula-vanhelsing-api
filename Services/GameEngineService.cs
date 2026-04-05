@@ -175,38 +175,130 @@ namespace DraculaVanHelsing.Api.Services
             if (state.CurrentTurnUserId != userId) return null;
 
             var player = state.Players.FirstOrDefault(p => p.UserId == userId);
-            if (player == null || player.DrawnCard == null) return null; // Chưa rút bài thì không được đánh
+            if (player == null || player.DrawnCard == null) return null;
+
+            int playedCardValue = ((discardedCardId - 1) % 8) + 1;
+
+            // Luật lá số 8: Không được vứt trừ khi Mộ bài có ít nhất 6 lá (bao gồm cả nó, tức là trước đó có >= 5 lá)
+            if (playedCardValue == 8 && state.DiscardPile.Count < 5)
+            {
+                return null; // Không cho phép vứt
+            }
 
             CardInHand? cardToDiscard = null;
             bool isDiscardingDrawnCard = player.DrawnCard.CardId == discardedCardId;
 
             if (isDiscardingDrawnCard)
             {
-                // Vứt ngay lá vừa rút
                 cardToDiscard = player.DrawnCard;
                 player.DrawnCard = null;
             }
             else
             {
-                // Vứt 1 lá trên tay, giữ lại lá vừa rút vào vị trí đó
                 var cardInHand = player.Hand.FirstOrDefault(c => c.CardId == discardedCardId);
-                if (cardInHand == null) return null; // Không tìm thấy lá bài hợp lệ
+                if (cardInHand == null) return null;
 
                 cardToDiscard = cardInHand;
                 int index = player.Hand.IndexOf(cardInHand);
 
-                // Hoán đổi
                 player.Hand[index] = player.DrawnCard;
                 player.DrawnCard = null;
             }
 
-            // Đưa lá bị vứt vào Discard Pile
             state.DiscardPile.Add(cardToDiscard.CardId);
 
-            // TODO: Kích hoạt Effect (Kỹ năng) của lá bài vừa đánh tại đây (Giai đoạn 2)
+            bool requiresTarget = playedCardValue == 3 || playedCardValue == 4 || playedCardValue == 6 || playedCardValue == 7;
 
-            // Chuyển lượt cho đối thủ
+            if (requiresTarget)
+            {
+                state.PendingSkillValue = playedCardValue;
+            }
+            else
+            {
+                ExecuteAutoSkill(state, playedCardValue);
+
+                // Nếu đánh lá 5 (Thêm lượt) hoặc 8 (Kết thúc vòng), không chuyển lượt cho đối thủ
+                if (playedCardValue != 5 && playedCardValue != 8)
+                {
+                    var opponent = state.Players.First(p => p.UserId != userId);
+                    state.CurrentTurnUserId = opponent.UserId;
+                }
+            }
+
+            await _gameStateService.SaveGameStateAsync(roomCode, state);
+            return state;
+        }
+
+        private void ExecuteAutoSkill(GameRoomState state, int skillValue)
+        {
+            switch (skillValue)
+            {
+                case 1:
+                case 2:
+                    // TODO: Logic lật lá bài trên cùng của DrawPile cho cả 2 người cùng thấy
+                    break;
+                case 8:
+                    // TODO: Gọi hàm tính điểm kết thúc vòng (Round Resolution) tại đây
+                    break;
+            }
+        }
+
+        public async Task<GameRoomState?> SubmitSkillActionAsync(Guid userId, string roomCode, SkillPayload payload)
+        {
+            var state = await _gameStateService.GetGameStateAsync(roomCode);
+
+            if (state == null || state.Status != RoomStatus.Playing) return null;
+            if (state.CurrentTurnUserId != userId || state.PendingSkillValue == null) return null;
+
+            int skillValue = state.PendingSkillValue.Value;
+            var currentPlayer = state.Players.First(p => p.UserId == userId);
             var opponent = state.Players.First(p => p.UserId != userId);
+
+            switch (skillValue)
+            {
+                case 3: // Xem/Lật bài đối thủ
+                case 4:
+                    if (payload.TargetCardId.HasValue)
+                    {
+                        var targetCard = opponent.Hand.FirstOrDefault(c => c.CardId == payload.TargetCardId.Value);
+                        if (targetCard != null)
+                        {
+                            targetCard.IsRevealed = true;
+                        }
+                    }
+                    break;
+
+                case 6: // Tráo bài cùng Quận
+                    if (payload.TargetCardId.HasValue)
+                    {
+                        var opponentCard = opponent.Hand.FirstOrDefault(c => c.CardId == payload.TargetCardId.Value);
+                        if (opponentCard != null)
+                        {
+                            int districtIndex = opponent.Hand.IndexOf(opponentCard);
+                            var myCard = currentPlayer.Hand[districtIndex];
+
+                            opponent.Hand[districtIndex] = myCard;
+                            currentPlayer.Hand[districtIndex] = opponentCard;
+                        }
+                    }
+                    break;
+
+                case 7: // Đổi thứ hạng màu
+                    if (payload.TargetColor1.HasValue && payload.TargetColor2.HasValue)
+                    {
+                        var idx1 = state.ColorRanking.IndexOf(payload.TargetColor1.Value);
+                        var idx2 = state.ColorRanking.IndexOf(payload.TargetColor2.Value);
+
+                        if (idx1 != -1 && idx2 != -1)
+                        {
+                            state.ColorRanking[idx1] = payload.TargetColor2.Value;
+                            state.ColorRanking[idx2] = payload.TargetColor1.Value;
+                        }
+                    }
+                    break;
+            }
+
+            state.PendingSkillValue = null;
             state.CurrentTurnUserId = opponent.UserId;
 
             await _gameStateService.SaveGameStateAsync(roomCode, state);

@@ -1,4 +1,5 @@
 ﻿using DraculaVanHelsing.Api.Models.Enums;
+using DraculaVanHelsing.Api.Models.GameState;
 using DraculaVanHelsing.Api.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
@@ -94,6 +95,17 @@ namespace DraculaVanhelsing.Api.Hubs
             if (state != null)
             {
                 // Gửi state mới cho cả 2 người chơi để cập nhật UI
+                await Clients.Group(roomCode).SendAsync("GameStateUpdated", state);
+            }
+        }
+
+        public async Task SubmitSkillAction(string roomCode, SkillPayload payload)
+        {
+            var userId = Guid.Parse(Context.UserIdentifier!);
+            var state = await _gameEngineService.SubmitSkillActionAsync(userId, roomCode, payload);
+
+            if (state != null)
+            {
                 await Clients.Group(roomCode).SendAsync("GameStateUpdated", state);
             }
         }
