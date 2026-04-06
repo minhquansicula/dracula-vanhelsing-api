@@ -147,6 +147,9 @@ namespace DraculaVanHelsing.Api.Services
             if (state == null || state.Status != RoomStatus.Playing) return null;
             if (state.CurrentTurnUserId != userId) return null; // Không phải lượt của người này
 
+            // BẢO MẬT: Chặn thao tác nếu đang chờ xử lý kỹ năng (Lá 3, 4, 6, 7)
+            if (state.PendingSkillValue != null) return null;
+
             var player = state.Players.FirstOrDefault(p => p.UserId == userId);
             if (player == null || player.DrawnCard != null) return null; // Đã rút bài rồi không được rút thêm
 
@@ -173,6 +176,9 @@ namespace DraculaVanHelsing.Api.Services
 
             if (state == null || state.Status != RoomStatus.Playing) return null;
             if (state.CurrentTurnUserId != userId) return null;
+
+            // BẢO MẬT: Chặn thao tác nếu đang chờ xử lý kỹ năng (Ngăn chặn spam API)
+            if (state.PendingSkillValue != null) return null;
 
             var player = state.Players.FirstOrDefault(p => p.UserId == userId);
             if (player == null || player.DrawnCard == null) return null;
@@ -207,7 +213,7 @@ namespace DraculaVanHelsing.Api.Services
 
             state.DiscardPile.Add(cardToDiscard.CardId);
 
-            bool requiresTarget = playedCardValue == 3 || playedCardValue == 4 || playedCardValue == 6 || playedCardValue == 7;
+            bool requiresTarget = playedCardValue ==1 || playedCardValue == 3 || playedCardValue == 4 || playedCardValue == 6 || playedCardValue == 7;
 
             if (requiresTarget)
             {
@@ -231,14 +237,19 @@ namespace DraculaVanHelsing.Api.Services
 
         private void ExecuteAutoSkill(GameRoomState state, int skillValue)
         {
+            var currentPlayer = state.Players.First(p => p.UserId == state.CurrentTurnUserId);
+
             switch (skillValue)
             {
-                case 1:
-                case 2:
-                    // TODO: Logic lật lá bài trên cùng của DrawPile cho cả 2 người cùng thấy
+                case 2: // Reveal the top card of the deck (Lật lá trên cùng bộ bài)
+                        // Chúng ta không lật trong DrawPile (vì nó là mảng int), 
+                        // mà ta lật lá đó khi người chơi tiếp theo rút nó, hoặc lưu vào một biến 'TopCardRevealed' trong state.
+                        // Cách đơn giản nhất: Đánh dấu để FE hiển thị lá bài tiếp theo trong Deck là "nhìn thấy được".
+                    state.IsTopDeckCardRevealed = true;
                     break;
+
                 case 8:
-                    // TODO: Gọi hàm tính điểm kết thúc vòng (Round Resolution) tại đây
+                    // TODO: ResolveRoundAsync(state);
                     break;
             }
         }
@@ -256,8 +267,18 @@ namespace DraculaVanHelsing.Api.Services
 
             switch (skillValue)
             {
-                case 3: // Xem/Lật bài đối thủ
-                case 4:
+                case 1: // Lật 1 lá bài của bản thân
+                    if (payload.TargetCardId.HasValue)
+                    {
+                        var myCard = currentPlayer.Hand.FirstOrDefault(c => c.CardId == payload.TargetCardId.Value);
+                        if (myCard != null)
+                        {
+                            myCard.IsRevealed = true;
+                        }
+                    }
+                    break;
+
+                case 3: // Lật bài đối thủ
                     if (payload.TargetCardId.HasValue)
                     {
                         var targetCard = opponent.Hand.FirstOrDefault(c => c.CardId == payload.TargetCardId.Value);
@@ -268,7 +289,24 @@ namespace DraculaVanHelsing.Api.Services
                     }
                     break;
 
-                case 6: // Tráo bài cùng Quận
+                case 4: // Tráo 2 lá bài của bản thân
+                    if (payload.TargetCardId.HasValue && payload.TargetCardId2.HasValue)
+                    {
+                        var card1 = currentPlayer.Hand.FirstOrDefault(c => c.CardId == payload.TargetCardId.Value);
+                        var card2 = currentPlayer.Hand.FirstOrDefault(c => c.CardId == payload.TargetCardId2.Value);
+
+                        if (card1 != null && card2 != null)
+                        {
+                            int idx1 = currentPlayer.Hand.IndexOf(card1);
+                            int idx2 = currentPlayer.Hand.IndexOf(card2);
+
+                            currentPlayer.Hand[idx1] = card2;
+                            currentPlayer.Hand[idx2] = card1;
+                        }
+                    }
+                    break;
+
+                case 6: // Tráo bài cùng Quận với đối thủ
                     if (payload.TargetCardId.HasValue)
                     {
                         var opponentCard = opponent.Hand.FirstOrDefault(c => c.CardId == payload.TargetCardId.Value);
