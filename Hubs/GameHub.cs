@@ -70,6 +70,14 @@ namespace DraculaVanhelsing.Api.Hubs
                 {
                     Console.WriteLine($"[SignalR] Tự động reconnect vào phòng: {roomCode}");
                     await Groups.AddToGroupAsync(Context.ConnectionId, roomCode);
+
+                    // --- THÊM PHẦN NÀY ĐỂ TRẢ LẠI TRẠNG THÁI CHO CLIENT ---
+                    var state = await _gameStateService.GetGameStateAsync(roomCode);
+                    if (state != null)
+                    {
+                        await Clients.Caller.SendAsync("GameStateUpdated", state);
+                    }
+
                     return roomCode;
                 }
 
