@@ -35,6 +35,7 @@ namespace DraculaVanHelsing.Api.Services
             };
 
             await _gameStateService.SaveGameStateAsync(roomCode, state);
+            await _gameStateService.SetUserRoomAsync(userId, roomCode);
             return state;
         }
 
@@ -55,6 +56,7 @@ namespace DraculaVanHelsing.Api.Services
             });
 
             await _gameStateService.SaveGameStateAsync(roomCode, state);
+            await _gameStateService.SetUserRoomAsync(userId, roomCode);
             return state;
         }
 
@@ -145,26 +147,25 @@ namespace DraculaVanHelsing.Api.Services
             var state = await _gameStateService.GetGameStateAsync(roomCode);
 
             if (state == null || state.Status != RoomStatus.Playing) return null;
-            if (state.CurrentTurnUserId != userId) return null; // Không phải lượt của người này
+            if (state.CurrentTurnUserId != userId) return null;
 
-            // BẢO MẬT: Chặn thao tác nếu đang chờ xử lý kỹ năng (Lá 3, 4, 6, 7)
             if (state.PendingSkillValue != null) return null;
 
             var player = state.Players.FirstOrDefault(p => p.UserId == userId);
-            if (player == null || player.DrawnCard != null) return null; // Đã rút bài rồi không được rút thêm
+            if (player == null || player.DrawnCard != null) return null;
 
             if (state.DrawPile.Count == 0)
             {
-                // TODO: Xử lý hết bài -> Gọi hàm kết thúc vòng
-                return state;
+                return await CheckAndResolveRoundAsync(roomCode, state);
             }
 
-            // Rút lá đầu tiên từ DrawPile
             var cardId = state.DrawPile[0];
             state.DrawPile.RemoveAt(0);
 
-            // Đưa vào khu vực chờ (DrawnCard) của người chơi
             player.DrawnCard = new CardInHand { CardId = cardId, IsRevealed = false };
+
+            // LOGIC MỚI: Rút xong phải tắt cờ lộ bài top deck
+            state.IsTopDeckCardRevealed = false;
 
             await _gameStateService.SaveGameStateAsync(roomCode, state);
             return state;
@@ -177,7 +178,6 @@ namespace DraculaVanHelsing.Api.Services
             if (state == null || state.Status != RoomStatus.Playing) return null;
             if (state.CurrentTurnUserId != userId) return null;
 
-            // BẢO MẬT: Chặn thao tác nếu đang chờ xử lý kỹ năng (Ngăn chặn spam API)
             if (state.PendingSkillValue != null) return null;
 
             var player = state.Players.FirstOrDefault(p => p.UserId == userId);
@@ -185,10 +185,10 @@ namespace DraculaVanHelsing.Api.Services
 
             int playedCardValue = ((discardedCardId - 1) % 8) + 1;
 
-            // Luật lá số 8: Không được vứt trừ khi Mộ bài có ít nhất 6 lá (bao gồm cả nó, tức là trước đó có >= 5 lá)
+            // Lá 8 yêu cầu phải có ít nhất 6 lá trong Mộ bài (nghĩa là 5 lá đang nằm sẵn trong mộ + 1 lá đang chuẩn bị vứt vào)
             if (playedCardValue == 8 && state.DiscardPile.Count < 5)
             {
-                return null; // Không cho phép vứt
+                return null;
             }
 
             CardInHand? cardToDiscard = null;
@@ -213,7 +213,7 @@ namespace DraculaVanHelsing.Api.Services
 
             state.DiscardPile.Add(cardToDiscard.CardId);
 
-            bool requiresTarget = playedCardValue ==1 || playedCardValue == 3 || playedCardValue == 4 || playedCardValue == 6 || playedCardValue == 7;
+            bool requiresTarget = playedCardValue == 1 || playedCardValue == 3 || playedCardValue == 4 || playedCardValue == 6 || playedCardValue == 7;
 
             if (requiresTarget)
             {
@@ -223,7 +223,6 @@ namespace DraculaVanHelsing.Api.Services
             {
                 ExecuteAutoSkill(state, playedCardValue);
 
-                // Nếu đánh lá 5 (Thêm lượt) hoặc 8 (Kết thúc vòng), không chuyển lượt cho đối thủ
                 if (playedCardValue != 5 && playedCardValue != 8)
                 {
                     var opponent = state.Players.First(p => p.UserId != userId);
@@ -231,25 +230,18 @@ namespace DraculaVanHelsing.Api.Services
                 }
             }
 
-            await _gameStateService.SaveGameStateAsync(roomCode, state);
-            return state;
+            return await CheckAndResolveRoundAsync(roomCode, state);
         }
 
         private void ExecuteAutoSkill(GameRoomState state, int skillValue)
         {
-            var currentPlayer = state.Players.First(p => p.UserId == state.CurrentTurnUserId);
-
             switch (skillValue)
             {
-                case 2: // Reveal the top card of the deck (Lật lá trên cùng bộ bài)
-                        // Chúng ta không lật trong DrawPile (vì nó là mảng int), 
-                        // mà ta lật lá đó khi người chơi tiếp theo rút nó, hoặc lưu vào một biến 'TopCardRevealed' trong state.
-                        // Cách đơn giản nhất: Đánh dấu để FE hiển thị lá bài tiếp theo trong Deck là "nhìn thấy được".
+                case 2:
                     state.IsTopDeckCardRevealed = true;
                     break;
-
                 case 8:
-                    // TODO: ResolveRoundAsync(state);
+                    state.ForceEndRound = true;
                     break;
             }
         }
@@ -267,29 +259,27 @@ namespace DraculaVanHelsing.Api.Services
 
             switch (skillValue)
             {
-                case 1: // Lật 1 lá bài của bản thân
+                case 1:
                     if (payload.TargetCardId.HasValue)
                     {
                         var myCard = currentPlayer.Hand.FirstOrDefault(c => c.CardId == payload.TargetCardId.Value);
-                        if (myCard != null)
-                        {
-                            myCard.IsRevealed = true;
-                        }
+                        // Bổ sung Anti-cheat: Chỉ cho phép chọn lá bài chưa lật
+                        if (myCard != null && !myCard.IsRevealed) myCard.IsRevealed = true;
+                        else return null;
                     }
                     break;
 
-                case 3: // Lật bài đối thủ
+                case 3:
                     if (payload.TargetCardId.HasValue)
                     {
                         var targetCard = opponent.Hand.FirstOrDefault(c => c.CardId == payload.TargetCardId.Value);
-                        if (targetCard != null)
-                        {
-                            targetCard.IsRevealed = true;
-                        }
+                        // Bổ sung Anti-cheat: Chỉ cho phép chọn lá bài chưa lật
+                        if (targetCard != null && !targetCard.IsRevealed) targetCard.IsRevealed = true;
+                        else return null;
                     }
                     break;
 
-                case 4: // Tráo 2 lá bài của bản thân
+                case 4:
                     if (payload.TargetCardId.HasValue && payload.TargetCardId2.HasValue)
                     {
                         var card1 = currentPlayer.Hand.FirstOrDefault(c => c.CardId == payload.TargetCardId.Value);
@@ -306,7 +296,7 @@ namespace DraculaVanHelsing.Api.Services
                     }
                     break;
 
-                case 6: // Tráo bài cùng Quận với đối thủ
+                case 6:
                     if (payload.TargetCardId.HasValue)
                     {
                         var opponentCard = opponent.Hand.FirstOrDefault(c => c.CardId == payload.TargetCardId.Value);
@@ -321,17 +311,19 @@ namespace DraculaVanHelsing.Api.Services
                     }
                     break;
 
-                case 7: // Đổi thứ hạng màu
+                case 7:
                     if (payload.TargetColor1.HasValue && payload.TargetColor2.HasValue)
                     {
                         var idx1 = state.ColorRanking.IndexOf(payload.TargetColor1.Value);
                         var idx2 = state.ColorRanking.IndexOf(payload.TargetColor2.Value);
 
-                        if (idx1 != -1 && idx2 != -1)
+                        // Bổ sung luật: 1 trong 2 màu phải là màu Trump (Index 0)
+                        if (idx1 != -1 && idx2 != -1 && (idx1 == 0 || idx2 == 0))
                         {
                             state.ColorRanking[idx1] = payload.TargetColor2.Value;
                             state.ColorRanking[idx2] = payload.TargetColor1.Value;
                         }
+                        else return null;
                     }
                     break;
             }
@@ -339,7 +331,176 @@ namespace DraculaVanHelsing.Api.Services
             state.PendingSkillValue = null;
             state.CurrentTurnUserId = opponent.UserId;
 
+            return await CheckAndResolveRoundAsync(roomCode, state);
+        }
+
+        public async Task<GameRoomState?> CallEndRoundAsync(Guid userId, string roomCode)
+        {
+            var state = await _gameStateService.GetGameStateAsync(roomCode);
+
+            if (state == null || state.Status != RoomStatus.Playing) return null;
+            if (state.CurrentTurnUserId != userId || state.PendingSkillValue != null) return null;
+
+            if (state.DiscardPile.Count < 6) return null;
+
+            state.IsLastTurn = true;
+            state.CalledEndRoundUserId = userId;
+
+            var opponent = state.Players.First(p => p.UserId != userId);
+            state.CurrentTurnUserId = opponent.UserId;
+
             await _gameStateService.SaveGameStateAsync(roomCode, state);
+            return state;
+        }
+
+        private async Task<GameRoomState> CheckAndResolveRoundAsync(string roomCode, GameRoomState state)
+        {
+            bool isDeckEmpty = state.DrawPile.Count == 0;
+            bool isLastTurnFinished = state.IsLastTurn && state.CurrentTurnUserId == state.CalledEndRoundUserId;
+
+            if (isDeckEmpty || state.ForceEndRound || isLastTurnFinished)
+            {
+                return await ResolveRoundAsync(roomCode, state);
+            }
+
+            await _gameStateService.SaveGameStateAsync(roomCode, state);
+            return state;
+        }
+
+        private async Task<GameRoomState> ResolveRoundAsync(string roomCode, GameRoomState state)
+        {
+            var allCards = GameHelper.GenerateStandardDeck();
+            var dracula = state.Players.First(p => p.Faction == FactionType.Dracula);
+            var vanHelsing = state.Players.First(p => p.Faction == FactionType.VanHelsing);
+
+            for (int i = 0; i < 5; i++)
+            {
+                var draculaCard = allCards.First(c => c.CardId == dracula.Hand[i].CardId);
+                var vhCard = allCards.First(c => c.CardId == vanHelsing.Hand[i].CardId);
+
+                int winner = CompareCards(draculaCard, vhCard, state.ColorRanking);
+                var zone = state.Zones[i];
+
+                if (winner > 0)
+                {
+                    if (zone.HumanTokens > 0)
+                    {
+                        zone.HumanTokens--;
+                        zone.VampireTokens++;
+                    }
+
+                    if (zone.VampireTokens >= 4)
+                    {
+                        return await EndGameAsync(state, dracula.UserId, "Dracula turned 4 humans in a district.");
+                    }
+                }
+                else
+                {
+                    dracula.Health--;
+
+                    if (dracula.Health <= 0)
+                    {
+                        return await EndGameAsync(state, vanHelsing.UserId, "Van Helsing defeated Dracula.");
+                    }
+                }
+            }
+
+            state.RoundNumber++;
+            if (state.RoundNumber > 5)
+            {
+                return await EndGameAsync(state, dracula.UserId, "Dracula survived 5 rounds.");
+            }
+
+            SetupNextRound(state);
+            await _gameStateService.SaveGameStateAsync(roomCode, state);
+            return state;
+        }
+
+        private int CompareCards(CardData c1, CardData c2, List<CardColor> ranking)
+        {
+            CardColor trumpColor = ranking[0];
+            bool c1IsTrump = c1.Color == trumpColor;
+            bool c2IsTrump = c2.Color == trumpColor;
+
+            if (c1IsTrump && !c2IsTrump) return 1;
+            if (!c1IsTrump && c2IsTrump) return -1;
+
+            if (c1.Value > c2.Value) return 1;
+            if (c1.Value < c2.Value) return -1;
+
+            int c1Rank = ranking.IndexOf(c1.Color);
+            int c2Rank = ranking.IndexOf(c2.Color);
+            return c1Rank < c2Rank ? 1 : -1;
+        }
+
+        private void SetupNextRound(GameRoomState state)
+        {
+            state.IsLastTurn = false;
+            state.CalledEndRoundUserId = null;
+            state.ForceEndRound = false;
+            state.PendingSkillValue = null;
+            state.IsTopDeckCardRevealed = false;
+
+            var allCards = GameHelper.GenerateStandardDeck();
+            var deckIds = allCards.Select(c => c.CardId).ToList();
+            state.DrawPile = GameHelper.Shuffle(deckIds);
+            state.DiscardPile = new List<int>();
+
+            foreach (var p in state.Players)
+            {
+                p.DrawnCard = null;
+                p.Hand.Clear();
+
+                for (int i = 0; i < 5; i++)
+                {
+                    var cardId = state.DrawPile[0];
+                    state.DrawPile.RemoveAt(0);
+                    p.Hand.Add(new CardInHand { CardId = cardId, IsRevealed = false });
+                }
+            }
+
+            var draculaPlayer = state.Players.First(p => p.Faction == FactionType.Dracula);
+            state.CurrentTurnUserId = draculaPlayer.UserId;
+        }
+
+        public async Task LeaveRoomAsync(Guid userId)
+        {
+            var roomCode = await _gameStateService.GetUserRoomAsync(userId);
+            if (string.IsNullOrEmpty(roomCode)) return;
+
+            var state = await _gameStateService.GetGameStateAsync(roomCode);
+            if (state != null)
+            {
+                var player = state.Players.FirstOrDefault(p => p.UserId == userId);
+                if (player != null)
+                {
+                    state.Players.Remove(player);
+                    if (state.Players.Count == 0)
+                    {
+                        await _gameStateService.DeleteGameStateAsync(roomCode);
+                    }
+                    else
+                    {
+                        await _gameStateService.SaveGameStateAsync(roomCode, state);
+                    }
+                }
+            }
+            await _gameStateService.RemoveUserRoomAsync(userId);
+        }
+
+        private async Task<GameRoomState> EndGameAsync(GameRoomState state, Guid winnerId, string reason)
+        {
+            state.Status = RoomStatus.Finished;
+            state.WinnerId = winnerId;
+            state.EndReason = reason;
+
+            await _gameStateService.SaveGameStateAsync(state.RoomCode, state);
+
+            foreach (var player in state.Players)
+            {
+                await _gameStateService.RemoveUserRoomAsync(player.UserId);
+            }
+
             return state;
         }
 
@@ -347,7 +508,6 @@ namespace DraculaVanHelsing.Api.Services
         {
             var state = await _gameStateService.GetGameStateAsync(roomCode);
 
-            // Chỉ cho phép đầu hàng khi game đang diễn ra
             if (state == null || state.Status != RoomStatus.Playing) return null;
 
             var loser = state.Players.FirstOrDefault(p => p.UserId == userId);
@@ -355,18 +515,26 @@ namespace DraculaVanHelsing.Api.Services
 
             if (loser == null || winner == null) return null;
 
-            // Cập nhật trạng thái game
-            state.Status = RoomStatus.Finished;
-            state.WinnerId = winner.UserId;
-            state.EndReason = "Surrender";
+            return await EndGameAsync(state, winner.UserId, "Surrender");
+        }
 
-            // Lưu lại trạng thái mới vào Redis
-            await _gameStateService.SaveGameStateAsync(roomCode, state);
+        public async Task<GameRoomState?> HandleDisconnectAsync(Guid userId, string connectionId)
+        {
+            var roomCode = await _gameStateService.GetUserRoomAsync(userId);
+            if (string.IsNullOrEmpty(roomCode)) return null;
 
-            // TODO: (Sau này) Lưu lịch sử trận đấu (MatchHistory) vào Database SQL tại đây
+            var state = await _gameStateService.GetGameStateAsync(roomCode);
+            if (state == null) return null;
+
+            if (state.Status == RoomStatus.Waiting)
+            {
+                await LeaveRoomAsync(userId);
+                return state;
+            }
 
             return state;
         }
+
         private FactionType GetOppositeFaction(FactionType faction)
         {
             return faction == FactionType.Dracula ? FactionType.VanHelsing : FactionType.Dracula;

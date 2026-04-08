@@ -12,5 +12,8 @@ namespace DraculaVanHelsing.Api.Services.Interfaces
         Task<GameRoomState?> DrawCardAsync(Guid userId, string roomCode);
         Task<GameRoomState?> PlayCardAsync(Guid userId, string roomCode, int discardedCardId);
         Task<GameRoomState?> SubmitSkillActionAsync(Guid userId, string roomCode, SkillPayload payload);
+        Task<GameRoomState?> CallEndRoundAsync(Guid userId, string roomCode);
+        Task<GameRoomState?> HandleDisconnectAsync(Guid userId, string connectionId);
+        Task LeaveRoomAsync(Guid userId);
     }
 }

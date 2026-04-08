@@ -1,5 +1,6 @@
 ﻿using DraculaVanHelsing.Api.Models.Enums;
 using DraculaVanHelsing.Api.Models.GameState;
+using DraculaVanHelsing.Api.Services;
 using DraculaVanHelsing.Api.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
@@ -10,10 +11,12 @@ namespace DraculaVanhelsing.Api.Hubs
     public class GameHub : Hub
     {
         private readonly IGameEngineService _gameEngineService;
+        private readonly IGameStateService _gameStateService;
 
-        public GameHub(IGameEngineService gameEngineService)
+        public GameHub(IGameEngineService gameEngineService, IGameStateService gameStateService)
         {
             _gameEngineService = gameEngineService;
+            _gameStateService = gameStateService;
         }
 
         public override async Task OnConnectedAsync()
@@ -25,9 +28,65 @@ namespace DraculaVanhelsing.Api.Hubs
 
         public override async Task OnDisconnectedAsync(Exception? exception)
         {
-            var userId = Context.UserIdentifier;
+            var userId = Guid.Parse(Context.UserIdentifier!);
             Console.WriteLine($"User Disconnected: {userId} - ConnectionId: {Context.ConnectionId}");
+
+            var state = await _gameEngineService.HandleDisconnectAsync(userId, Context.ConnectionId);
+
+            if (state != null)
+            {
+                if (state.Status == RoomStatus.Waiting)
+                {
+                    await Clients.Group(state.RoomCode).SendAsync("GameStateUpdated", state);
+                }
+                else if (state.Status == RoomStatus.Finished)
+                {
+                    await Clients.Group(state.RoomCode).SendAsync("GameEnded", state);
+                }
+            }
+
             await base.OnDisconnectedAsync(exception);
+        }
+        public async Task<string?> CheckCurrentActiveMatch()
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(Context.UserIdentifier))
+                {
+                    Console.WriteLine("[SignalR] Lỗi: Context.UserIdentifier bị NULL.");
+                    return null;
+                }
+
+                if (!Guid.TryParse(Context.UserIdentifier, out var userId))
+                {
+                    Console.WriteLine($"[SignalR] Lỗi Parse Guid: {Context.UserIdentifier}");
+                    return null;
+                }
+
+                // Cần _gameStateService để gọi hàm này
+                var roomCode = await _gameStateService.GetUserRoomAsync(userId);
+
+                if (!string.IsNullOrEmpty(roomCode))
+                {
+                    Console.WriteLine($"[SignalR] Tự động reconnect vào phòng: {roomCode}");
+                    await Groups.AddToGroupAsync(Context.ConnectionId, roomCode);
+                    return roomCode;
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SignalR] Exception trong CheckCurrentActiveMatch: {ex.Message}");
+                return null;
+            }
+        }
+
+        public async Task LeaveRoom()
+        {
+            var userId = Guid.Parse(Context.UserIdentifier!);
+            await _gameEngineService.LeaveRoomAsync(userId);
+            await Clients.Caller.SendAsync("LeftRoom"); // Thông báo cho FE đã thoát xong
         }
 
         public async Task CreateRoom()
@@ -103,6 +162,16 @@ namespace DraculaVanhelsing.Api.Hubs
         {
             var userId = Guid.Parse(Context.UserIdentifier!);
             var state = await _gameEngineService.SubmitSkillActionAsync(userId, roomCode, payload);
+
+            if (state != null)
+            {
+                await Clients.Group(roomCode).SendAsync("GameStateUpdated", state);
+            }
+        }
+        public async Task CallEndRound(string roomCode)
+        {
+            var userId = Guid.Parse(Context.UserIdentifier!);
+            var state = await _gameEngineService.CallEndRoundAsync(userId, roomCode);
 
             if (state != null)
             {

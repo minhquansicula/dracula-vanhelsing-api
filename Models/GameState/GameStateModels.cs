@@ -7,6 +7,9 @@ namespace DraculaVanHelsing.Api.Models.GameState
         public Guid RoomId { get; set; }
         public string RoomCode { get; set; } = string.Empty;
         public RoomStatus Status { get; set; }
+        public bool IsLastTurn { get; set; } = false;
+        public Guid? CalledEndRoundUserId { get; set; }
+        public bool ForceEndRound { get; set; } = false;
         public Guid? CurrentTurnUserId { get; set; }
         public int RoundNumber { get; set; } = 1;
         public Guid? WinnerId { get; set; }

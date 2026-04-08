@@ -1,12 +1,15 @@
 ﻿using DraculaVanHelsing.Api.Data;
 using DraculaVanHelsing.Api.Services;
 using DraculaVanHelsing.Api.Services.Interfaces;
-using DraculaVanhelsing.Api.Hubs; 
+using DraculaVanhelsing.Api.Hubs;
+using DraculaVanHelsing.Api.Providers;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using StackExchange.Redis;
 using System.Text;
+using Microsoft.AspNetCore.SignalR;
+using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -52,7 +55,6 @@ builder.Services.AddAuthentication(options =>
         IssuerSigningKey = new SymmetricSecurityKey(key)
     };
 
-    // BẮT BUỘC THÊM SỰ KIỆN NÀY ĐỂ SIGNALR NHẬN ĐƯỢC JWT TOKEN
     options.Events = new JwtBearerEvents
     {
         OnMessageReceived = context =>
@@ -60,7 +62,6 @@ builder.Services.AddAuthentication(options =>
             var accessToken = context.Request.Query["access_token"];
             var path = context.HttpContext.Request.Path;
 
-            // Nếu request gửi đến Hub và có chứa token trong query string
             if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/gamehub"))
             {
                 context.Token = accessToken;
@@ -71,9 +72,11 @@ builder.Services.AddAuthentication(options =>
 });
 
 // 5. Đăng ký các Services (Dependency Injection)
-builder.Services.AddScoped<IGameStateService, GameStateService>();
+builder.Services.AddTransient<IGameStateService, GameStateService>();
+builder.Services.AddTransient<IGameEngineService, GameEngineService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddScoped<IGameEngineService, GameEngineService>();
+
+builder.Services.AddSingleton<IUserIdProvider, CustomUserIdProvider>();
 
 // 6. Cấu hình SignalR và Controllers
 builder.Services.AddSignalR();

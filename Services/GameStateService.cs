@@ -33,5 +33,21 @@ namespace DraculaVanHelsing.Api.Services
         {
             await _redisDb.KeyDeleteAsync($"room:{roomId}");
         }
+
+        public async Task SetUserRoomAsync(Guid userId, string roomCode)
+        {
+            await _redisDb.StringSetAsync($"user_room:{userId}", roomCode, TimeSpan.FromHours(24));
+        }
+
+        public async Task<string?> GetUserRoomAsync(Guid userId)
+        {
+            var data = await _redisDb.StringGetAsync($"user_room:{userId}");
+            return data.HasValue ? data.ToString() : null;
+        }
+
+        public async Task RemoveUserRoomAsync(Guid userId)
+        {
+            await _redisDb.KeyDeleteAsync($"user_room:{userId}");
+        }
     }
 }
