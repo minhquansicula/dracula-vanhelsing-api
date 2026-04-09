@@ -30,7 +30,8 @@
     {
         Waiting,
         Playing,
-        Finished
+        Finished,
+        CombatReview
     }
 
     public enum MatchResult

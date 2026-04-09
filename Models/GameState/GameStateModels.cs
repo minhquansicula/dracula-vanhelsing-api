@@ -44,6 +44,7 @@ namespace DraculaVanHelsing.Api.Models.GameState
         public List<CardInHand> Hand { get; set; } = new List<CardInHand>(); // [cite: 73][Max 5 lá]
         public bool IsConnected { get; set; } = true;
         public CardInHand? DrawnCard { get; set; }
+        public bool IsReadyForNextRound { get; set; } = false;
     }
     public class CardInHand
     {

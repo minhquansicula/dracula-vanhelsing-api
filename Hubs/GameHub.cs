@@ -77,7 +77,7 @@ namespace DraculaVanhelsing.Api.Hubs
                     {
                         await Clients.Caller.SendAsync("GameStateUpdated", state);
                     }
-
+  
                     return roomCode;
                 }
 
@@ -183,6 +183,18 @@ namespace DraculaVanhelsing.Api.Hubs
 
             if (state != null)
             {
+                await Clients.Group(roomCode).SendAsync("GameStateUpdated", state);
+            }
+        }
+
+        public async Task ReadyForNextRound(string roomCode)
+        {
+            var userId = Guid.Parse(Context.UserIdentifier!);
+            var state = await _gameEngineService.ReadyForNextRoundAsync(userId, roomCode);
+
+            if (state != null)
+            {
+                // Push State mới xuống cho cả 2 người
                 await Clients.Group(roomCode).SendAsync("GameStateUpdated", state);
             }
         }
