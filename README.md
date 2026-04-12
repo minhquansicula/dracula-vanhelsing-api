@@ -36,9 +36,8 @@ The project is organized into a modular structure for optimal scalability and ma
 
 Clone the repository:
 
-Bash
-
-git clone https://github.com/minhquansicula/dracula-api-backend.git
+```bash
+git clone [https://github.com/minhquansicula/dracula-api-backend.git](https://github.com/minhquansicula/dracula-api-backend.git)
 cd dracula-api-backend
 
 2. Configure Environment Variables:
