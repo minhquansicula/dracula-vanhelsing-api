@@ -34,30 +34,29 @@ The project is organized into a modular structure for optimal scalability and ma
 
 ## Installation and Running
 
-Clone the repository:
 
-```bash
-git clone [https://github.com/minhquansicula/dracula-api-backend.git](https://github.com/minhquansicula/dracula-api-backend.git)
-cd dracula-api-backend
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/minhquansicula/dracula-api-backend.git
+   cd dracula-api-backend
 
 2. Configure Environment Variables:
 Open appsettings.Development.json (or create it if it doesn't exist) and configure your local SQL Server connection and a secure JWT Key:
 
-Đoạn mã
-
 {
-"ConnectionStrings": {
-"DefaultConnection": "Server=localhost;Database=DraculaDbLocal;Trusted_Connection=True;TrustServerCertificate=True;"
-},
-"Jwt": {
-"Key": "YOUR_SUPER_SECRET_KEY_AT_LEAST_32_CHARS_LONG",
-"Issuer": "DraculaGame",
-"Audience": "DraculaPlayers"
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=localhost;Database=DraculaDbLocal;Trusted_Connection=True;TrustServerCertificate=True;"
+  },
+  "Jwt": {
+    "Key": "YOUR_SUPER_SECRET_KEY_AT_LEAST_32_CHARS_LONG",
+    "Issuer": "DraculaGame",
+    "Audience": "DraculaPlayers"
+  }
 }
-}
+
 3. Apply Database Migrations:
 
-Bash
+
 
 dotnet ef database update
 4. Start the development server:
