@@ -42,7 +42,7 @@ The project is organized into a modular structure for optimal scalability and ma
 
 2. Configure Environment Variables:
 Open appsettings.Development.json (or create it if it doesn't exist) and configure your local SQL Server connection and a secure JWT Key:
-
+```
 {
   "ConnectionStrings": {
     "DefaultConnection": "Server=localhost;Database=DraculaDbLocal;Trusted_Connection=True;TrustServerCertificate=True;"
@@ -53,19 +53,21 @@ Open appsettings.Development.json (or create it if it doesn't exist) and configu
     "Audience": "DraculaPlayers"
   }
 }
+```
 
 3. Apply Database Migrations:
 
 
-
+```
 dotnet ef database update
+```
 4. Start the development server:
 
-Bash
+```Bash
 
 dotnet run
 The API will launch on https://localhost:xxxx. You can access the Swagger UI documentation at https://localhost:xxxx/swagger.
-
+```
 ## Deployment
 This project is optimized for deployment on Azure App Service (Linux).
 Important Deployment Note: When deploying to Azure, do not commit production passwords to GitHub. You must declare the following in the Environment variables section of your Azure App Service dashboard: Add DefaultConnection in the Connection strings tab (Type: SQLAzure) pointing to your Azure SQL Database, and add Jwt__Key (with double underscores) in the App settings tab for token encryption.
