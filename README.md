@@ -36,12 +36,15 @@ The project is organized into a modular structure for optimal scalability and ma
 
 
 1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/minhquansicula/dracula-api-backend.git
-   cd dracula-api-backend
+
+```bash
+git clone https://github.com/minhquansicula/dracula-api-backend.git
+cd dracula-api-backend
+```
 
 2. Configure Environment Variables:
 Open appsettings.Development.json (or create it if it doesn't exist) and configure your local SQL Server connection and a secure JWT Key:
+
 ```
 {
   "ConnectionStrings": {
