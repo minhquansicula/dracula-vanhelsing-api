@@ -440,7 +440,7 @@ namespace DraculaVanHelsing.Api.Services
 
         private async Task<GameRoomState> CheckAndResolveRoundAsync(string roomCode, GameRoomState state)
         {
-            bool isDeckEmpty = state.DrawPile.Count == 0;
+            bool isDeckEmpty = state.DrawPile.Count == 0 && state.Players.All(p => p.DrawnCard == null);
             bool isLastTurnFinished = state.IsLastTurn && state.CurrentTurnUserId == state.CalledEndRoundUserId;
 
             if (isDeckEmpty || state.ForceEndRound || isLastTurnFinished)
@@ -715,6 +715,11 @@ namespace DraculaVanHelsing.Api.Services
 
             ClearTurnTimeout(state.RoomCode);
             ClearReviewTimeout(state.RoomCode);
+
+            if (_roomLocks.TryRemove(state.RoomCode, out var sem))
+            {
+                sem.Dispose();
+            }
 
             return state;
         }

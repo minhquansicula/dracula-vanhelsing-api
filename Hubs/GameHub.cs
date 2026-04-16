@@ -39,6 +39,10 @@ namespace DraculaVanhelsing.Api.Hubs
                 {
                     await Clients.Group(state.RoomCode).SendAsync("GameStateUpdated", state);
                 }
+                else if (state.Status == RoomStatus.Playing || state.Status == RoomStatus.CombatReview)
+                {
+                    await Clients.OthersInGroup(state.RoomCode).SendAsync("OpponentDisconnected", userId);
+                }
                 else if (state.Status == RoomStatus.Finished)
                 {
                     await Clients.Group(state.RoomCode).SendAsync("GameEnded", state);
